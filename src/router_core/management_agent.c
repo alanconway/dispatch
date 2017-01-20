@@ -164,11 +164,10 @@ static void qd_manage_response_handler(void *context, const qd_amqp_error_t *sta
                if (ctx->count != ctx->current_count) {
                    qdr_query_get_next(ctx->query);
                    return;
-               } else
-                   //
+               } else {
                    // This is the one case where the core agent won't free the query itself.
-                   //
                    qdr_query_free(ctx->query);
+               }
             }
         }
         qd_compose_end_list(ctx->field);
