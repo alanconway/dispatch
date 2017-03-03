@@ -17,13 +17,12 @@
 # under the License
 #
 
-import re, json, unittest, os
+import json, unittest, os
 from time import sleep
 from system_test import TestCase, Process, Qdrouterd, main_module, TIMEOUT, DIR, wait_port
 from subprocess import PIPE, STDOUT
-from qpid_dispatch_internal.compat import OrderedDict, dictify
+from qpid_dispatch_internal.compat import dictify
 from qpid_dispatch_internal.management.qdrouter import QdSchema
-from proton import Url
 
 DUMMY = "org.apache.qpid.dispatch.dummy"
 
@@ -211,7 +210,7 @@ class QdmanageTest(TestCase):
                     log_levels_present += 1
                 else:
                     log_levels_missing += 1
-            
+
             if log_levels_present == n_log_levels:
                 good_logs += 1
 
@@ -219,7 +218,6 @@ class QdmanageTest(TestCase):
 
     def test_ssl(self):
         """Simple test for SSL connection. Note system_tests_qdstat has a more complete SSL test"""
-        url = Url(self.router_1.addresses[1], scheme="amqps")
         schema = dictify(QdSchema().dump())
         actual = self.run_qdmanage("GET-JSON-SCHEMA")
         self.assertEquals(schema, dictify(json.loads(actual)))
