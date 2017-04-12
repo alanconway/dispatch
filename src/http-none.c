@@ -28,21 +28,11 @@ qd_http_server_t *qd_http_server(struct qd_dispatch_t *d, qd_log_source_t *log)
     return 0;
 }
 
-void qd_http_server_free(qd_http_server_t *h)
-{
-}
+void qd_http_server_free(qd_http_server_t *h) {}
 
-qd_http_listener_t *qd_http_listener(struct qd_http_server_t *s,
-                                     const struct qd_server_config_t *config)
-{
-    return 0;
-}
+void* qd_http_server_run(void* qd_http_server) { return 0; }
 
-void qd_http_listener_free(qd_http_listener_t *hl)
-{
-}
+qd_http_listener_t *qd_http_server_listen(struct qd_listener_t *li) { return 0; }
 
-void qd_http_listener_accept(qd_http_listener_t *hl, struct qdpn_connector_t *c)
-{
-}
+
 
