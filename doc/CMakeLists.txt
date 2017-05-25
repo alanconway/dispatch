@@ -46,7 +46,7 @@ if(BUILD_DOCS)
 
   # Flags for doc tools, based on cmake options
   set(ADOC_FLAGS "--conf-file=${bin}/asciidoc.conf")
-  set(A2X_FLAGS "--asciidoc-opts=--conf-file=${bin}/asciidoc.conf" -D${bin})
+  set(A2X_FLAGS "--asciidoc-opts=--conf-file=${bin}/asciidoc.conf" "-v")
   if (DOC_VERBOSE)
     set(ADOC_FLAGS ${ADOC_FLAGS} -v)
     set(A2X_FLAGS ${A2X_FLAGS} -v)
@@ -138,10 +138,10 @@ if(BUILD_DOCS)
         get_filename_component(name ${source} NAME)
         get_filename_component(dir ${source} PATH)
         string(REGEX REPLACE ".*\\.([0-9])$" "\\1" section ${source}) # Man section number
-        set(output ${bin}/${name})
+        set(output ${bin}/man/${name})
         add_custom_command(
           OUTPUT ${output}
-          COMMAND ${A2X_EXE} ${A2X_FLAGS} -f manpage -D ${bin} ${source}.adoc
+          COMMAND ${A2X_EXE} ${A2X_FLAGS} -f manpage ${source}.adoc
           DEPENDS ${source}.adoc ${GENERATED_TXT})
         list(APPEND DOC_DEPENDS ${output})
         install_doc(FILES ${output} DESTINATION ${CMAKE_INSTALL_PREFIX}/${MAN_INSTALL_DIR}/man${section})
