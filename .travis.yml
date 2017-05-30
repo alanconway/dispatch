@@ -18,7 +18,7 @@
 #
 
 os: linux
-dist: trusty
+dist: xenial
 sudo: true
 language: c
 cache: ccache
@@ -36,17 +36,14 @@ addons:
     - swig
     # For apache RAT tool
     - maven
-    # documentation
-    - asciidoc
-    - dblatex
 
 install:
-- PREFIX=$PWD/install
+- PREFIX=$PWD/install # No need for root permissions
 - git submodule add https://git-wip-us.apache.org/repos/asf/qpid-proton.git
 - git submodule update --init
 
 # Build and install latest proton from source.
-- mkdir qpid-proton/build
+- mkdir -p qpid-proton/build
 - pushd qpid-proton/build
 - export PATH="/usr/bin:$PATH" # Avoid mismatched python interpreters in /opt
 - cmake .. -DCMAKE_INSTALL_PREFIX=$PREFIX -DBUILD_PYTHON=YES -DBUILD_JAVASCRIPT=NO -DBUILD_CPP=NO -DBUILD_GO=NO -DBUILD_RUBY=NO -DBUILD_PHP=NO -DBUILD_PERL=NO 
@@ -56,7 +53,7 @@ install:
 before_script:
 - PREFIX=$PWD/install
 - source qpid-proton/build/config.sh
-- mkdir build
+- mkdir -p build
 - pushd build
 - cmake .. -DCMAKE_INSTALL_PREFIX=$PREFIX -DUSE_VALGRIND=NO
 - cmake --build . --target install
