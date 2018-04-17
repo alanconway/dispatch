@@ -1171,7 +1171,7 @@ static void CORE_link_first_attach(void             *context,
 static void CORE_link_second_attach(void *context, qdr_link_t *link, qdr_terminus_t *source, qdr_terminus_t *target)
 {
     qd_link_t *qlink = (qd_link_t*) qdr_link_get_context(link);
-    if (!qlink)
+    if (!qlink || !qd_link_pn(qlink))
         return;
 
     qdr_terminus_copy(source, qd_link_source(qlink));
