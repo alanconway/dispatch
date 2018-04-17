@@ -271,30 +271,69 @@ static void notify_closed(qd_container_t *container, qd_connection_t *conn, void
     }
 }
 
-static void close_links(qd_container_t *container, pn_connection_t *conn, bool print_log)
-{
-    pn_link_t *pn_link = pn_link_head(conn, 0);
-    while (pn_link) {
-        qd_link_t *qd_link = (qd_link_t*) pn_link_get_context(pn_link);
-
-        if (qd_link && qd_link_get_context(qd_link) == 0) {
-            pn_link = pn_link_next(pn_link, 0);
-            qd_link_free(qd_link);
-            continue;
-        }
-
-        if (qd_link && qd_link->node) {
-            qd_node_t *node = qd_link->node;
-            if (print_log)
-                qd_log(container->log_source, QD_LOG_DEBUG,
-                       "Aborting link '%s' due to parent connection end",
-                       pn_link_name(pn_link));
-            node->ntype->link_detach_handler(node->context, qd_link, QD_LOST);
-        }
-        pn_link = pn_link_next(pn_link, 0);
+/* Forget a pn_link it from the qd_link layer, call before freeing the link explicitly or
+ * implicitly when the parent connection/session is freed
+ */
+static void forget_pn_link(pn_link_t *pn_link) {
+    qd_link_t *qd_link = (qd_link_t*) pn_link_get_context(pn_link);
+    if (qd_link) {
+        pn_link_set_context(pn_link, NULL);
+        qd_link->pn_link = NULL;
     }
 }
 
+/* Called when a link's parent (connection or session) is closed. */
+static void orphan_link(
+    qd_container_t *container, pn_link_t *pn_link, const char* parent_name)
+{
+    qd_link_t *qd_link = (qd_link_t*) pn_link_get_context(pn_link);
+    if (qd_link) {
+        if (qd_link_get_context(qd_link) == 0) {
+            qd_link_free(qd_link);
+        } else if (qd_link->node) {
+            qd_connection_t *qd_conn = qd_link_connection(qd_link);
+            if (qd_conn->policy_settings) {
+                if (qd_link->direction == QD_OUTGOING) {
+                    qd_conn->n_receivers--;
+                    assert(qd_conn->n_receivers >= 0);
+                } else {
+                    qd_conn->n_senders--;
+                    assert(qd_conn->n_senders >= 0);
+                }
+            }
+            if (parent_name) {
+                qd_log(container->log_source, QD_LOG_DEBUG,
+                       "Aborting link '%s' due to parent %s close",
+                       parent_name, pn_link_name(pn_link));
+            }
+            qd_node_t *node = qd_link->node;
+            node->ntype->link_detach_handler(node->context, qd_link, QD_LOST);
+        }
+        forget_pn_link(pn_link);
+    }
+}
+
+/* Orphan all links when the connection or transport closes */
+static void orphan_connection_links( qd_container_t *container, pn_connection_t *conn, bool print_log) {
+    pn_link_t *pn_link = pn_link_head(conn, 0);
+    while (pn_link) {
+        pn_link_t *next = pn_link_next(pn_link, 0); /* pn_link may be freed */
+        orphan_link(container, pn_link, print_log ? "connection" : NULL);
+        pn_link = next;
+    }
+}
+
+/* Orphan all links when the session closes */
+static void orphan_session_links(qd_container_t *container, pn_session_t *ssn, bool print_log) {
+    pn_link_t *pn_link = pn_link_head(pn_session_connection(ssn), 0);
+    while (pn_link) {
+        pn_link_t *next = pn_link_next(pn_link, 0); /* pn_link may be freed */
+        if (pn_link_session(pn_link) == ssn) {
+            orphan_link(container, pn_link, print_log ? "session" : NULL);
+        }
+        pn_link = next;
+    }
+}
 
 static int close_handler(qd_container_t *container, pn_connection_t *conn, qd_connection_t* qd_conn)
 {
@@ -302,7 +341,7 @@ static int close_handler(qd_container_t *container, pn_connection_t *conn, qd_co
     // Close all links, passing QD_LOST as the reason.  These links are not
     // being properly 'detached'.  They are being orphaned.
     //
-    close_links(container, conn, true);
+    orphan_connection_links(container, conn, true);
     notify_closed(container, qd_conn, qd_connection_get_context(qd_conn));
     return 0;
 }
@@ -372,7 +411,7 @@ void qd_container_handle_event(qd_container_t *container, pn_event_t *event)
 
     case PN_CONNECTION_REMOTE_CLOSE :
         if (pn_connection_state(conn) == (PN_LOCAL_ACTIVE | PN_REMOTE_CLOSED)) {
-            close_links(container, conn, false);
+            orphan_connection_links(container, conn, false);
             pn_connection_close(conn);
         }
         break;
@@ -394,18 +433,8 @@ void qd_container_handle_event(qd_container_t *container, pn_event_t *event)
         break;
 
     case PN_SESSION_LOCAL_CLOSE :
-        ssn = pn_event_session(event);
-        pn_link = pn_link_head(conn, PN_LOCAL_ACTIVE | PN_REMOTE_CLOSED);
-        while (pn_link) {
-            if (pn_link_session(pn_link) == ssn) {
-                qd_link_t *qd_link = (qd_link_t*) pn_link_get_context(pn_link);
-                if (qd_link)
-                    qd_link->pn_link = 0;
-            }
-            pn_link = pn_link_next(pn_link, PN_LOCAL_ACTIVE | PN_REMOTE_CLOSED);
-        }
-
         if (pn_session_state(ssn) == (PN_LOCAL_CLOSED | PN_REMOTE_CLOSED)) {
+            orphan_session_links(container, ssn, false);
             pn_session_free(ssn);
         }
         break;
@@ -417,36 +446,13 @@ void qd_container_handle_event(qd_container_t *container, pn_event_t *event)
                 // remote has nuked our session.  Check for any links that were
                 // left open and forcibly detach them, since no detaches will
                 // arrive on this session.
-                pn_connection_t *conn = pn_session_connection(ssn);
-                pn_link_t *pn_link = pn_link_head(conn, PN_LOCAL_ACTIVE | PN_REMOTE_ACTIVE);
-                while (pn_link) {
-                    if (pn_link_session(pn_link) == ssn) {
-                        qd_link_t *qd_link = (qd_link_t*) pn_link_get_context(pn_link);
-                        if (qd_link && qd_link->node) {
-                            if (qd_conn->policy_settings) {
-                                if (qd_link->direction == QD_OUTGOING) {
-                                    qd_conn->n_receivers--;
-                                    assert(qd_conn->n_receivers >= 0);
-                                } else {
-                                    qd_conn->n_senders--;
-                                    assert(qd_conn->n_senders >= 0);
-                                }
-                            }
-                            qd_log(container->log_source, QD_LOG_DEBUG,
-                                   "Aborting link '%s' due to parent session end",
-                                   pn_link_name(pn_link));
-                            qd_link->node->ntype->link_detach_handler(qd_link->node->context,
-                                                                      qd_link, QD_LOST);
-                        }
-                    }
-                    pn_link = pn_link_next(pn_link, PN_LOCAL_ACTIVE | PN_REMOTE_ACTIVE);
-                }
+                orphan_session_links(container, ssn, true);
                 if (qd_conn->policy_settings) {
                     qd_conn->n_sessions--;
                 }
                 pn_session_close(ssn);
-            }
-            else if (pn_session_state(ssn) == (PN_LOCAL_CLOSED | PN_REMOTE_CLOSED)) {
+            } else if (pn_session_state(ssn) == (PN_LOCAL_CLOSED | PN_REMOTE_CLOSED)) {
+                orphan_session_links(container, ssn, false);
                 pn_session_free(ssn);
             }
         }
@@ -506,7 +512,7 @@ void qd_container_handle_event(qd_container_t *container, pn_event_t *event)
                 }
 
                 if (pn_link_state(pn_link) & PN_LOCAL_CLOSED) {
-                    pn_link_set_context(pn_link, NULL);
+                    forget_pn_link(pn_link);
                     pn_link_free(pn_link);
                 }
                 if (node) {
@@ -520,7 +526,7 @@ void qd_container_handle_event(qd_container_t *container, pn_event_t *event)
     case PN_LINK_LOCAL_CLOSE:
         pn_link = pn_event_link(event);
         if (pn_link_state(pn_link) == (PN_LOCAL_CLOSED | PN_REMOTE_CLOSED) && pn_link_get_context(pn_link)) {
-            pn_link_set_context(pn_link, NULL);
+            forget_pn_link(pn_link);
             pn_link_free(pn_link);
         }
         break;
